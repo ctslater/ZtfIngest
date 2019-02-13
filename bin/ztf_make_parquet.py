@@ -10,6 +10,10 @@ import tables
 import pandas as pd
 import numpy as np
 
+def recast_uint(df):
+    for column, dtype in zip(df.columns, df.dtypes):
+        if(dtype == np.uint16):
+            df[column] = df[column].astype(np.int16)
 
 def get_dataframe_from_hdf_table(file_object, table_path, column_list=None):
     table_object = file_object.get_node(table_path)
@@ -26,26 +30,21 @@ def get_matchfile_metadata(file_object):
     attribute_names = node._v_attrs._v_attrnamesuser
     return {k: node._v_attrs[k] for k in attribute_names}
 
-def combine_object_with_data(object_df, data_df, metadata):
+def make_positional_dataframe(data_df):
 
-    def tolist_func(x):
-        return x.tolist()
+    return data_df.groupby("matchid")[('ra', 'dec', 'matchid')].agg(
+                {"ra": "mean", "dec": "mean", "matchid": "count"}).rename(columns={"matchid": "nrec"}).reset_index()
 
-    array_column_names = ('mag', 'magerr', 'programid', 'mjd', 'filterID', 'expid')
-    data_df['filterID'] = metadata['filterID']
-    grouped_data = data_df.groupby("matchid")[array_column_names].agg( {col: tolist_func for col in array_column_names})
-    return pd.merge(object_df, grouped_data, how='right', on='matchid')
-
-def make_positional_dataframe(data_df, metadata, transients=False):
+def assign_matchids_filters(data_df, metadata, transients=False):
+    """Assigns globally unique ids to the column "matchid", modifying data_df in place."""
     type_str = "1" if transients else "0"
 
-    output_df = data_df[['matchid','ra', 'dec']].copy().rename(columns={"matchid": "localMatchID"})
-    matchid_prefix_string = "{:06d}{:02d}{:01d}".format(metadata['fieldID'], metadata['ccdID'], metadata['quadrantID'])
+    data_df.rename(columns={"matchid": "localMatchID"}, inplace=True)
+    matchid_prefix_string = "{:05d}{:02d}{:01d}{:01d}".format(metadata['fieldID'], metadata['ccdID'],
+                                                              metadata['quadrantID'], metadata['filterID'])
     source_prefix_int = int(matchid_prefix_string + type_str + "0000000")
-    output_df['matchid'] = source_prefix_int + output_df['localMatchID']
-
-    return output_df.groupby("matchid")[('ra', 'dec', 'matchid')].agg(
-                {"ra": "mean", "dec": "mean", "matchid": "count"}).rename(columns={"matchid": "nrec"}).reset_index()
+    data_df['matchid'] = source_prefix_int + data_df['localMatchID']
+    data_df['filterid'] = metadata['filterID']
 
 def zone_func(dec):
     zone_height = 10/60.0
@@ -82,8 +81,14 @@ def convert_matchfile(matchfile_filename, pos_parquet_filename,
 
     matchfile_md = get_matchfile_metadata(matchfile_hdf)
 
-    source_pos_catalog = make_positional_dataframe(sourcedata, matchfile_md, transients=False)
-    transient_pos_catalog = make_positional_dataframe(transientdata, matchfile_md, transients=True)
+    recast_uint(sourcedata)
+    recast_uint(transientdata)
+
+    assign_matchids_filters(sourcedata, matchfile_md, transients=False)
+    assign_matchids_filters(transientdata, matchfile_md, transients=True)
+
+    source_pos_catalog = make_positional_dataframe(sourcedata)
+    transient_pos_catalog = make_positional_dataframe(transientdata)
 
     combined_pos_catalog = pd.concat([source_pos_catalog,
                                       transient_pos_catalog])
