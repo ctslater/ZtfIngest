@@ -8,8 +8,8 @@ abstract class UnitSpec extends FlatSpec with OptionValues with Matchers
 
 object ZtfTest extends UnitSpec {
 
-    def stripRaDec(x: Iterable[(Long, Long, Long, Double, Double)]) = {
-        x.map( t => (t._2, t._3) )
+    def stripRaDec(x: Iterable[MatchSingleCoordZone]) = {
+        x.map( t => (t.id1, t.id2) )
     }
 
     // This avoids having to write out fake ra, dec coordinates, which at the moment
