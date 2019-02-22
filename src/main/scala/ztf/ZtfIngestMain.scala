@@ -17,7 +17,7 @@ object ZtfIngestMain {
   def main(args: Array[String]) {
 
     val usage = """
-                |Must specify processing stage: either "crossmatch" or "joindata".
+                |Must specify processing stage: either "crossmatch", "resolve_overlaps", or "joindata".
                 """.stripMargin
     if (args.length == 0) {
       println(usage)
@@ -27,6 +27,7 @@ object ZtfIngestMain {
     args(0) match {
       case "crossmatch" => crossmatch_task
       case "joindata" => joindata_task
+      case "resolve_overlaps" => resolve_overlaps_task
       case _ => {
         println(usage)
         sys.exit(1)
@@ -39,7 +40,7 @@ object ZtfIngestMain {
     val spark = SparkSession.builder().appName("ZtfIngest").getOrCreate()
     import spark.implicits._
 
-    val input_pos = spark.read.parquet("/data/epyc/data/ztf_scratch/matchfile_debug_10arcsec/rc0?/*/*_pos.parquet")
+    val input_pos = spark.read.parquet("/data/epyc/data/ztf_scratch/matchfile_debug_10arcsec/rc??/*/*_pos.parquet")
     input_pos.createOrReplaceTempView("ztf")
 
     val crossmatched = spark.sql("""select ztf.zone,
@@ -52,8 +53,12 @@ object ZtfIngestMain {
 
     val unique_matches = crossmatched.groupByKey(_.zone).flatMapGroups(ZtfIngest.deduplicatePartition)
     unique_matches.write.parquet("crossmatch_unique.parquet")
+  }
 
-    /* val unique_matches = spark.read.parquet("crossmatch_unique.parquet") */
+  def resolve_overlaps_task() : Unit = {
+    val spark = SparkSession.builder().appName("ZtfIngest").getOrCreate()
+    import spark.implicits._
+    val unique_matches = spark.read.parquet("crossmatch_unique.parquet")
 
     val mean_coords = unique_matches.groupBy("zone", "id1").agg(Map("ra" -> "avg", "dec" -> "avg"))
     val good_primary_ids = mean_coords.where(zone_func(mean_coords("avg(dec)")) === mean_coords("zone"))
@@ -70,7 +75,7 @@ object ZtfIngestMain {
     val resolved_pairs = spark.read.parquet("resolved_pairs.parquet")
     resolved_pairs.createOrReplaceTempView("resolved_pairs")
 
-    val raw_data = spark.read.parquet("/data/epyc/data/ztf_scratch/matchfile_debug_10arcsec/rc0?/*/*_data.parquet")
+    val raw_data = spark.read.parquet("/data/epyc/data/ztf_scratch/matchfile_debug_10arcsec/rc??/*/*_data.parquet")
     raw_data.createOrReplaceTempView("raw_data")
 
     val joined_data = spark.sql("""SELECT resolved_pairs.id1 as matchid,
@@ -83,12 +88,12 @@ object ZtfIngestMain {
                                 |collect_list(psfmag) AS psfmag, collect_list(psfmagerr) as psfmagerr,
                                 |collect_list(psfflux) AS psfflux, collect_list(psffluxerr) as psffluxerr,
                                 |collect_list(chi) as chi, collect_list(catflags) as catflags, collect_list(sharp) as sharp,
-                                |collect_list(xpos) as xpos, collect_list(ypos) as ypos
+                                |collect_list(xpos) as xpos, collect_list(ypos) as ypos, collect_list(rcid) as rcid,
                                 |FROM raw_data
                                 |JOIN resolved_pairs ON resolved_pairs.id2 = raw_data.matchid
                                 |GROUP BY resolved_pairs.id1""".stripMargin)
 
-    joined_data.write.parquet("/data/epyc/users/ctslater/big_join2.parquet")
+    joined_data.write.parquet("/data/epyc/users/ctslater/big_join.parquet")
 
   }
 }
