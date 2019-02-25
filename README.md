@@ -101,8 +101,8 @@ like:
 ```
 spark-submit --master 'local[5]' \
 --driver-java-options "-XX:+UseG1GC " \
---driver-memory 10G --conf spark.memory.offHeap.enabled=true \
---conf spark.memory.offHeap.size=4G ztf-ingest_2.11-1.0.jar crossmatch
+--driver-memory 100G --conf spark.memory.offHeap.enabled=true \
+--conf spark.memory.offHeap.size=60G ztf-ingest_2.11-1.0.jar crossmatch
 ```
 
 This currently writes out to `crossmatch_unique.parquet`, but it should be
