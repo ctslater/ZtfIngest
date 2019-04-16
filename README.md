@@ -123,6 +123,24 @@ matchid pairings; tagging each record with the primary matchid which it
 should be grouped into. In the same query, the records are grouped by the
 primary matchid and the measurement columns are concatenated into arrays.
 This is performed by the "joindata" task, which writes out
-`big_join.parquet`.
+`big_join.parquet`. This took about 58 hours to run with 10 executors.
+
+Match IDs
+=========
+
+The format of the globally-unique match IDs is FFFFFccQfTsssssss.
+
+- F: Field ID, 5 digits.
+- c: CCD ID, 2 digits.
+- Q: Quadrant ID, 1 digit.
+- f: Filter ID, 1 digit (1:g, 2:R, 3:i).
+- T: Type; 1 for transient, 0 for non-transient.
+- s: matchID from the original matchfile, 7 digits.  
+
+To-Do
+=====
+
+- Add additional convenience fields, such as `nobs` per filter, mean magnitudes per band.
+- Optimization of memory usage in `crossmatch` task.
 
 
