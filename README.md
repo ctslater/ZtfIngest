@@ -72,58 +72,62 @@ the data in an AXS-compatible format.
 Detailed Ingest Steps
 =====================
 
-1. Run `ztf_make_parquet.py`. This converts each hdf5 matchfile into two
-parquet files; one suffiexed with `_data` containing `sourcedata` and
-`transientdata`, and another suffixed by `_pos` which contains only the
-`matchid`, `ra`, and `dec` values for sources and transients. Records in the
-positional table are assigned to zones (currently 20 arcseconds wide in dec),
-and records falling within 5 arcseconds of a zone boundary are duplicated
-into the neighboring zone. Rows in the `_data` tables are not duplicated.
+1. Run `ztf_make_parquet.py`. This converts each hdf5 matchfile into two parquet
+   files; one suffiexed with `_data` containing `sourcedata` and
+   `transientdata`, and another suffixed by `_pos` which contains only the
+   `matchid`, `ra`, and `dec` values for sources and transients. Records in the
+   positional table are assigned to zones (currently 20 arcseconds wide in dec),
+   and records falling within 5 arcseconds of a zone boundary are duplicated
+   into the neighboring zone. Rows in the `_data` tables are not duplicated.
 
 2. Crossmatch inside of each zone. This is performed by the "crossmatch" task
-in ztf-ingest.jar. The SQL statement this task runs is:
-```
-SELECT ztf.zone, ztf.matchid as id1, ztf.ra as ra1, ztf.dec as dec1,
-       ztf2.matchid as id2,ztf2.ra as ra2, ztf2.dec as dec2
-FROM ztf 
-JOIN ztf as ztf2 ON ztf.zone = ztf2.zone
-                 AND (ztf.ra > ztf2.ra - 1.5/3600.0)
-                 AND (ztf.ra < ztf2.ra + 1.5/3600.0)
-WHERE pow(ztf.ra - ztf2.ra, 2) + pow(ztf.dec - ztf2.dec, 2) < pow(1.5/3600.0,2)
-```                        
+   in ztf-ingest.jar. The SQL statement this task runs is:
 
-This task also maps over each partition and performs deduplication of the
-crossmatches inside of each zone.
+   This task also maps over each partition and performs deduplication of the
+   crossmatches inside of each zone.
 
-This task tends to cause garbage collection thrashing when run in standalone
-mode, so adding lots of driver memory is helpful. An example submission looks
-like:
-```
-spark-submit --master 'local[5]' \
---driver-java-options "-XX:+UseG1GC " \
---driver-memory 100G --conf spark.memory.offHeap.enabled=true \
---conf spark.memory.offHeap.size=60G ztf-ingest_2.11-1.0.jar crossmatch
-```
+   ```
+   SELECT ztf.zone, ztf.matchid as id1, ztf.ra as ra1, ztf.dec as dec1,
+          ztf2.matchid as id2,ztf2.ra as ra2, ztf2.dec as dec2
+   FROM ztf
+   JOIN ztf as ztf2 ON ztf.zone = ztf2.zone
+                    AND (ztf.ra > ztf2.ra - 1.5/3600.0)
+                    AND (ztf.ra < ztf2.ra + 1.5/3600.0)
+   WHERE pow(ztf.ra - ztf2.ra, 2) + pow(ztf.dec - ztf2.dec, 2) < pow(1.5/3600.0,2)
+   ```
 
-This currently writes out to `crossmatch_unique.parquet`, but it should be
-made configurable.
+   This task also maps over each partition and performs deduplication of the
+   crossmatches inside of each zone.
+
+   This task tends to cause garbage collection thrashing when run in standalone
+   mode, so adding lots of driver memory is helpful. An example submission looks
+   like:
+   ```
+   spark-submit --master 'local[5]' \
+   --driver-java-options "-XX:+UseG1GC " \
+   --driver-memory 100G --conf spark.memory.offHeap.enabled=true \
+   --conf spark.memory.offHeap.size=60G ztf-ingest_2.11-1.0.jar crossmatch
+   ```
+
+     This currently writes out to `crossmatch_unique.parquet`, but it should be
+   made configurable.
 
 4. Resolve zone overlaps, with the "resolve_overlaps" task in ztf-ingest.jar.
-Because each zone should see all of the records that are within ~2 arcseconds
-of the zone border, identical match families will be produced in both zones.
-We resolve these by computing the mean position of the family and keeping
-only the one that falls inside its own zone. The other zone will see the mean
-position resolve to outside its zone, and will discard it. 
+   Because each zone should see all of the records that are within ~2 arcseconds
+   of the zone border, identical match families will be produced in both zones.
+   We resolve these by computing the mean position of the family and keeping
+   only the one that falls inside its own zone. The other zone will see the mean
+   position resolve to outside its zone, and will discard it. 
 
-This task reads in `crossmatch_unique.parquet` and writes out
-`resolved_pairs.parquet`
+   This task reads in `crossmatch_unique.parquet` and writes out
+   `resolved_pairs.parquet`
 
 5. Join the full parquet dataset (generated in Step 1) with the deduplicated
-matchid pairings; tagging each record with the primary matchid which it
-should be grouped into. In the same query, the records are grouped by the
-primary matchid and the measurement columns are concatenated into arrays.
-This is performed by the "joindata" task, which writes out
-`big_join.parquet`. This took about 58 hours to run with 10 executors.
+   matchid pairings; tagging each record with the primary matchid which it
+   should be grouped into. In the same query, the records are grouped by the
+   primary matchid and the measurement columns are concatenated into arrays.
+   This is performed by the "joindata" task, which writes out
+   `big_join.parquet`. This took about 58 hours to run with 10 executors.
 
 Match IDs
 =========
