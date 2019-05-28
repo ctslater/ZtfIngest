@@ -5,6 +5,7 @@ import os
 import glob
 
 import argparse
+from multiprocessing import Pool
 import tqdm
 import tables
 import pandas as pd
@@ -35,14 +36,22 @@ def make_positional_dataframe(data_df):
     return data_df.groupby("matchid")[('ra', 'dec', 'matchid')].agg(
                 {"ra": "mean", "dec": "mean", "matchid": "count"}).rename(columns={"matchid": "nrec"}).reset_index()
 
+
+def quad_ccd_to_rc(quadrant, ccd):
+    b = 4 * (ccd - 1)
+    rc = b + quadrant - 1
+    return rc
+
 def assign_matchids_filters(data_df, metadata, transients=False):
     """Assigns globally unique ids to the column "matchid", modifying data_df in place."""
-    type_str = "1" if transients else "0"
+    type_str = "0" if transients else "1"
 
     data_df.rename(columns={"matchid": "localMatchID"}, inplace=True)
-    matchid_prefix_string = "{:05d}{:02d}{:01d}{:01d}".format(metadata['fieldID'], metadata['ccdID'],
-                                                              metadata['quadrantID'], metadata['filterID'])
-    source_prefix_int = int(matchid_prefix_string + type_str + "0000000")
+    readout_channel = quad_ccd_to_rc(metadata['quadrantID'], metadata['ccdID'])
+    matchid_prefix_string = "{:04d}{:02d}{:01d}".format(metadata['fieldID'],
+                                                        readout_channel,
+                                                        metadata['filterID'])
+    source_prefix_int = int(type_str + matchid_prefix_string +  "000000")
     data_df['matchid'] = source_prefix_int + data_df['localMatchID']
     data_df['filterid'] = metadata['filterID']
 
@@ -63,7 +72,7 @@ def zone_dupe_function(dec):
     return zone + delta
 
 def convert_matchfile(matchfile_filename, pos_parquet_filename,
-                      data_parquet_filename):
+                      data_parquet_filename, include_transients=False):
 
     matchfile_hdf = tables.open_file(matchfile_filename)
 
@@ -75,23 +84,27 @@ def convert_matchfile(matchfile_filename, pos_parquet_filename,
     sourcedata = get_dataframe_from_hdf_table(matchfile_hdf,
                                               "/matches/sourcedata",
                                               column_list=column_list)
-    transientdata = get_dataframe_from_hdf_table(matchfile_hdf,
-                                                 "/matches/transientdata",
-                                                 column_list=column_list)
 
     matchfile_md = get_matchfile_metadata(matchfile_hdf)
 
     recast_uint(sourcedata)
-    recast_uint(transientdata)
 
     assign_matchids_filters(sourcedata, matchfile_md, transients=False)
-    assign_matchids_filters(transientdata, matchfile_md, transients=True)
 
     source_pos_catalog = make_positional_dataframe(sourcedata)
-    transient_pos_catalog = make_positional_dataframe(transientdata)
 
-    combined_pos_catalog = pd.concat([source_pos_catalog,
-                                      transient_pos_catalog])
+    if include_transients:
+        transientdata = get_dataframe_from_hdf_table(matchfile_hdf,
+                                                     "/matches/transientdata",
+                                                     column_list=column_list)
+        recast_uint(transientdata)
+        assign_matchids_filters(transientdata, matchfile_md, transients=True)
+        transient_pos_catalog = make_positional_dataframe(transientdata)
+
+        combined_pos_catalog = pd.concat([source_pos_catalog,
+                                          transient_pos_catalog])
+    else:
+        combined_pos_catalog = source_pos_catalog
 
     combined_pos_catalog['zone'] = zone_func(combined_pos_catalog['dec'])
     combined_pos_catalog['alt_zone'] = zone_dupe_function(combined_pos_catalog['dec'])
@@ -110,7 +123,10 @@ def convert_matchfile(matchfile_filename, pos_parquet_filename,
         duplicated_pos_catalog.to_parquet(pos_parquet_filename)
 
     if data_parquet_filename is not None:
-        combined_data = pd.concat([sourcedata, transientdata])
+        if include_transients:
+            combined_data = pd.concat([sourcedata, transientdata])
+        else:
+            combined_data = sourcedata
         combined_data.to_parquet(data_parquet_filename)
 
     matchfile_hdf.close()
@@ -135,25 +151,29 @@ if __name__ == '__main__':
     parser.add_argument("--output-path", dest="output_basepath", action="store",
                         help="Output directory",
                         type=str, default=default_output_basepath)
+    parser.add_argument("--nprocs", type=int, default=1,
+                        help="Number of parallel processes to use")
     args = parser.parse_args()
 
     input_files = glob.glob(os.path.join(args.input_basepath, args.glob_pattern))
 
-    for matchfile_path in tqdm.tqdm(iterable=input_files):
+    # This is not great coding style...
+    def process_wrapper(matchfile_path):
         output_file_pytable = matchfile_path.replace(args.input_basepath,
                                                      args.output_basepath)
         output_pos_filename = output_file_pytable.replace(".pytable", "_pos.parquet")
         if args.no_data:
             output_data_filename = None
             if(os.path.exists(output_pos_filename)):
-                continue
+                return
         else:
             output_data_filename = output_file_pytable.replace(".pytable", "_data.parquet")
             if(os.path.exists(output_data_filename)):
-                continue
+                return
 
         convert_matchfile(matchfile_path, output_pos_filename,
                           output_data_filename)
 
-
+    with Pool(args.nprocs) as p:
+        p.map(process_wrapper, input_files)
 
