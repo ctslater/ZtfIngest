@@ -83,9 +83,6 @@ Detailed Ingest Steps
 2. Crossmatch inside of each zone. This is performed by the "crossmatch" task
    in ztf-ingest.jar. The SQL statement this task runs is:
 
-   This task also maps over each partition and performs deduplication of the
-   crossmatches inside of each zone.
-
    ```
    SELECT ztf.zone, ztf.matchid as id1, ztf.ra as ra1, ztf.dec as dec1,
           ztf2.matchid as id2,ztf2.ra as ra2, ztf2.dec as dec2
@@ -132,14 +129,13 @@ Detailed Ingest Steps
 Match IDs
 =========
 
-The format of the globally-unique match IDs is FFFFFccQfTsssssss.
+The format of the globally-unique match IDs is TFFFFRRfssssss.
 
-- F: Field ID, 5 digits.
-- c: CCD ID, 2 digits.
-- Q: Quadrant ID, 1 digit.
+- T: Type; 1 for source, 0 for transient.
+- F: Field ID, 4 digits.
+- R: Readout channel ID (combined CCD and amp)
 - f: Filter ID, 1 digit (1:g, 2:R, 3:i).
-- T: Type; 1 for transient, 0 for non-transient.
-- s: matchID from the original matchfile, 7 digits.  
+- s: matchID from the original matchfile, 6 digits.  
 
 To-Do
 =====
