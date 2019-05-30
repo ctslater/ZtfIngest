@@ -1,2 +1,5 @@
 target/
 .vscode/
+.ivy2/
+.sbt/
+*.swp
