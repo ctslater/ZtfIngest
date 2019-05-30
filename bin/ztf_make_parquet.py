@@ -15,6 +15,10 @@ def recast_uint(df):
     for column, dtype in zip(df.columns, df.dtypes):
         if(dtype == np.uint16):
             df[column] = df[column].astype(np.int16)
+        elif(dtype == np.uint32):
+            df[column] = df[column].astype(np.int32)
+        elif(dtype == np.uint64):
+            df[column] = df[column].astype(np.int64)
 
 def get_dataframe_from_hdf_table(file_object, table_path, column_list=None):
     table_object = file_object.get_node(table_path)
@@ -52,7 +56,7 @@ def assign_matchids_filters(data_df, metadata, transients=False):
                                                         readout_channel,
                                                         metadata['filterID'])
     source_prefix_int = int(type_str + matchid_prefix_string +  "000000")
-    data_df['matchid'] = source_prefix_int + data_df['localMatchID']
+    data_df['matchid'] = (source_prefix_int + data_df['localMatchID']).astype(np.int64)
     data_df['filterid'] = metadata['filterID']
 
 def zone_func(dec):
