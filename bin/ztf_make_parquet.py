@@ -25,7 +25,10 @@ def get_dataframe_from_hdf_table(file_object, table_path, column_list=None):
     columns = pd.DataFrame.from_records(table_object.read(0,0))
     if column_list is None:
         column_list = columns.columns.tolist()
-    hdf_dict = {col: table_object.read(field=col) for col in column_list}
+        table_dat = table_object.read()
+        hdf_dict = {col: table_dat[col] for col in column_list}
+    else:
+        hdf_dict = {col: table_object.read(field=col) for col in column_list}
     dataframe = pd.DataFrame.from_records(hdf_dict)
 
     return dataframe
@@ -178,6 +181,10 @@ if __name__ == '__main__':
         convert_matchfile(matchfile_path, output_pos_filename,
                           output_data_filename)
 
-    with Pool(args.nprocs) as p:
-        p.map(process_wrapper, input_files)
+    if args.nprocs > 1:
+        with Pool(args.nprocs) as p:
+            p.map(process_wrapper, input_files)
+    else:
+        for filename in input_files:
+            process_wrapper(filename)
 
