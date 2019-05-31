@@ -78,6 +78,16 @@ def zone_dupe_function(dec):
     delta += 1*(1 - zone_residual < zone_dupe_height)
     return zone + delta
 
+def subzone_func(zone, ra):
+    return zone*1000 + np.floor(ra)
+
+def subzone_dupe_function(subzone, ra):
+    subzone_dup_height = 20/3600.0
+    zone_residual = ra - np.floor(ra)
+    delta = 0 - 1 *(zone_residual < subzone_dup_height)
+    delta +=  1 *(1 - zone_residual < subzone_dup_height)
+    return subzone + delta
+
 def convert_matchfile(matchfile_filename, pos_parquet_filename,
                       data_parquet_filename, include_transients=False):
 
@@ -113,6 +123,10 @@ def convert_matchfile(matchfile_filename, pos_parquet_filename,
     else:
         combined_pos_catalog = source_pos_catalog
 
+
+    #
+    # Duplicate based on zone
+    #
     combined_pos_catalog['zone'] = zone_func(combined_pos_catalog['dec'])
     combined_pos_catalog['alt_zone'] = zone_dupe_function(combined_pos_catalog['dec'])
 
@@ -123,11 +137,25 @@ def convert_matchfile(matchfile_filename, pos_parquet_filename,
     duplicated_pos_catalog = pd.concat([combined_pos_catalog,
                                         duplicate_records]).drop(columns=["alt_zone"])
 
+    #
+    # Duplicate based on subzone
+    #
+    duplicated_pos_catalog['subzone'] = subzone_func(duplicated_pos_catalog['zone'],
+                                                     duplicated_pos_catalog['ra'])
+    duplicated_pos_catalog['alt_subzone'] = subzone_dupe_function(duplicated_pos_catalog['zone'],
+                                                                  duplicated_pos_catalog['ra'])
+    duplicate_records = duplicated_pos_catalog[duplicated_pos_catalog['subzone'] !=
+                                               duplicated_pos_catalog['alt_subzone']].copy()
+    duplicate_records['subzone'] = duplicate_records['alt_subzone']
+
+    double_duplicated_pos_catalog = pd.concat([duplicated_pos_catalog,
+                                               duplicate_records]).drop(columns=["alt_subzone"])
+
     if not os.path.exists(os.path.dirname(pos_parquet_filename)):
         os.makedirs(os.path.dirname(pos_parquet_filename))
 
     if pos_parquet_filename is not None:
-        duplicated_pos_catalog.to_parquet(pos_parquet_filename)
+        double_duplicated_pos_catalog.to_parquet(pos_parquet_filename)
 
     if data_parquet_filename is not None:
         if include_transients:
@@ -143,7 +171,7 @@ if __name__ == '__main__':
     default_input_basepath = ("/data/epyc/data/ztf_matchfiles/"
                           "partnership/ztfweb.ipac.caltech.edu")
     default_output_basepath = "/data/epyc/data/ztf_scratch/matchfiles_parquet"
-    default_glob_pattern = "rc[012]?/*/*.pytable"
+    default_glob_pattern = "rc??/*/*.pytable"
 
     parser = argparse.ArgumentParser(description="Convert hdf5 matchfiles into parquet",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -162,13 +190,14 @@ if __name__ == '__main__':
                         help="Number of parallel processes to use")
     args = parser.parse_args()
 
-    input_files = glob.glob(os.path.join(args.input_basepath, args.glob_pattern))
+    input_files = glob.iglob(os.path.join(args.input_basepath, args.glob_pattern))
 
     # This is not great coding style...
     def process_wrapper(matchfile_path):
-        output_file_pytable = matchfile_path.replace(args.input_basepath,
-                                                     args.output_basepath)
+        output_file_pytable = matchfile_path.replace(os.path.normpath(args.input_basepath),
+                                                     os.path.normpath(args.output_basepath))
         output_pos_filename = output_file_pytable.replace(".pytable", "_pos.parquet")
+
         if args.no_data:
             output_data_filename = None
             if(os.path.exists(output_pos_filename)):
