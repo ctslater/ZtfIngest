@@ -51,15 +51,15 @@ object ZtfIngestMain {
     inputPos.createOrReplaceTempView("ztf")
 
     spark.sparkContext.setJobGroup("crossmatch", "Crossmatch Task")
-    val crossmatched = spark.sql("""select ztf.zone,
+    val crossmatched = spark.sql("""select ztf.zone, ztf.subzone,
                          |ztf.matchid as id1, ztf.ra as ra1, ztf.dec as dec1,
                          |ztf2.matchid as id2,ztf2.ra as ra2, ztf2.dec as dec2
-                         |FROM ztf JOIN ztf as ztf2 ON ztf.zone = ztf2.zone
+                         |FROM ztf JOIN ztf as ztf2 ON ztf.subzone = ztf2.subzone
                          |AND (ztf.ra > ztf2.ra - 1.5/3600.0) AND (ztf.ra < ztf2.ra + 1.5/3600.0)
                          |WHERE pow(ztf.ra - ztf2.ra, 2) + pow(ztf.dec - ztf2.dec, 2) < pow(1.5/3600.0,2)""".stripMargin
-                         ).as[MatchWithCoordZone]
+                         ).as[MatchWithCoordSubzone]
 
-    val uniqueMatches = crossmatched.groupByKey(_.zone).flatMapGroups(ZtfIngest.deduplicatePartition)
+    val uniqueMatches = crossmatched.groupByKey(_.subzone).flatMapGroups(ZtfIngest.deduplicatePartition)
     uniqueMatches.write.parquet("crossmatch_unique.parquet")
   }
 
