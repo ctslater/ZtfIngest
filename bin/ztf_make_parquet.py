@@ -76,17 +76,17 @@ def zone_dupe_function(dec):
     zone_dupe_height = (dupe_height/zone_height)
     delta = 0 + -1*(zone_residual < zone_dupe_height)
     delta += 1*(1 - zone_residual < zone_dupe_height)
-    return zone + delta
+    return (zone + delta).astype(np.int)
 
 def subzone_func(zone, ra):
-    return zone*1000 + np.floor(ra)
+    return (zone*1000 + np.floor(ra)).astype(np.int)
 
 def subzone_dupe_function(subzone, ra):
     subzone_dup_height = 10/3600.0
     zone_residual = ra - np.floor(ra)
     delta = 0 - 1 *(zone_residual < subzone_dup_height)
     delta +=  1 *(1 - zone_residual < subzone_dup_height)
-    return subzone + delta
+    return (subzone + delta).astype(np.int)
 
 def convert_matchfile(matchfile_filename, pos_parquet_filename,
                       data_parquet_filename, include_transients=False):
@@ -135,21 +135,21 @@ def convert_matchfile(matchfile_filename, pos_parquet_filename,
     duplicate_records['zone'] = duplicate_records['alt_zone']
 
     duplicated_pos_catalog = pd.concat([combined_pos_catalog,
-                                        duplicate_records]).drop(columns=["alt_zone"])
+                                        duplicate_records])
 
     #
     # Duplicate based on subzone
     #
     duplicated_pos_catalog['subzone'] = subzone_func(duplicated_pos_catalog['zone'],
                                                      duplicated_pos_catalog['ra'])
-    duplicated_pos_catalog['alt_subzone'] = subzone_dupe_function(duplicated_pos_catalog['zone'],
+    duplicated_pos_catalog['alt_subzone'] = subzone_dupe_function(duplicated_pos_catalog['subzone'],
                                                                   duplicated_pos_catalog['ra'])
     duplicate_records = duplicated_pos_catalog[duplicated_pos_catalog['subzone'] !=
                                                duplicated_pos_catalog['alt_subzone']].copy()
     duplicate_records['subzone'] = duplicate_records['alt_subzone']
 
     double_duplicated_pos_catalog = pd.concat([duplicated_pos_catalog,
-                                               duplicate_records]).drop(columns=["alt_subzone"])
+                                               duplicate_records])
 
     if not os.path.exists(os.path.dirname(pos_parquet_filename)):
         os.makedirs(os.path.dirname(pos_parquet_filename))
