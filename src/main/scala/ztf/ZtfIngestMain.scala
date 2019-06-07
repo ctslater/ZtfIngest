@@ -19,8 +19,13 @@ class IngestConf(arguments: Seq[String], tasks: Seq[String]) extends ScallopConf
 object ZtfIngestMain {
 
   def zoneFunc(dec: Column) = {
-    val zoneHeight = 10/60.0
+    val zoneHeight = 60/3600.0
     functions.floor((dec + 90.0)/zoneHeight)
+  }
+
+  def subzoneFunc(ra: Column, dec: Column) = {
+    val zone = zoneFunc(dec)
+    zone*1000 + functions.floor(ra)
   }
 
   def main(args: Array[String]) {
@@ -70,9 +75,9 @@ object ZtfIngestMain {
 
     spark.sparkContext.setJobGroup("resolve_overlaps", "Resolve Overlaps Task")
 
-    val meanCoords = uniqueMatches.groupBy("zone", "id1").agg(Map("ra" -> "avg", "dec" -> "avg"))
-    val goodPrimaryIds = meanCoords.where(zoneFunc(meanCoords("avg(dec)")) === meanCoords("zone"))
-    val resolvedPairs = uniqueMatches.join(goodPrimaryIds, Seq("id1", "zone"))
+    val meanCoords = uniqueMatches.groupBy("subzone", "id1").agg(Map("ra" -> "avg", "dec" -> "avg"))
+    val goodPrimaryIds = meanCoords.where(subzoneFunc(meanCoords("avg(ra)"), meanCoords("avg(dec)")) === meanCoords("subzone"))
+    val resolvedPairs = uniqueMatches.join(goodPrimaryIds, Seq("id1", "subzone"))
                                        .select("id1", "id2").distinct()
     resolvedPairs.write.parquet("resolved_pairs.parquet")
 

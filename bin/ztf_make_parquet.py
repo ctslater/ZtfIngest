@@ -63,11 +63,11 @@ def assign_matchids_filters(data_df, metadata, transients=False):
     data_df['filterid'] = metadata['filterID']
 
 def zone_func(dec):
-    zone_height = 10/60.0
+    zone_height = 60/3600.0
     return np.floor((dec + 90.0)/zone_height).astype(int)
 
 def zone_dupe_function(dec):
-    zone_height = 20/3600.0
+    zone_height = 60/3600.0
     dupe_height = 5/3600.0
 
     zone_float = (dec + 90.0)/zone_height
@@ -82,7 +82,7 @@ def subzone_func(zone, ra):
     return zone*1000 + np.floor(ra)
 
 def subzone_dupe_function(subzone, ra):
-    subzone_dup_height = 20/3600.0
+    subzone_dup_height = 10/3600.0
     zone_residual = ra - np.floor(ra)
     delta = 0 - 1 *(zone_residual < subzone_dup_height)
     delta +=  1 *(1 - zone_residual < subzone_dup_height)
