@@ -30,12 +30,11 @@ object ZtfIngestMain {
 
   def main(args: Array[String]) {
 
-    val tasks = Seq("crossmatch", "resolve_overlaps", "joindata")
+    val tasks = Seq("crossmatch", "joindata")
     val ingestConf = new IngestConf(args, tasks)
 
     ingestConf.task() match {
       case "crossmatch" => crossmatchTask(ingestConf.dataPath.toOption, ingestConf.positionalGlob.toOption)
-      case "resolve_overlaps" => resolveOverlapsTask
       case "joindata" => joinDataTask(ingestConf.dataPath.toOption, ingestConf.dataGlob.toOption)
       case _ => {
         /* This should never happen if IngestConf validation worked correctly */
@@ -65,22 +64,12 @@ object ZtfIngestMain {
                          ).as[MatchWithCoordSubzone]
 
     val uniqueMatches = crossmatched.groupByKey(_.subzone).flatMapGroups(ZtfIngest.deduplicatePartition)
-    uniqueMatches.write.parquet("crossmatch_unique.parquet")
-  }
-
-  def resolveOverlapsTask() : Unit = {
-    val spark = SparkSession.builder().appName("ZtfIngest").getOrCreate()
-    import spark.implicits._
-    val uniqueMatches = spark.read.parquet("crossmatch_unique.parquet")
-
-    spark.sparkContext.setJobGroup("resolve_overlaps", "Resolve Overlaps Task")
 
     val meanCoords = uniqueMatches.groupBy("subzone", "id1").agg(Map("ra" -> "avg", "dec" -> "avg"))
     val goodPrimaryIds = meanCoords.where(subzoneFunc(meanCoords("avg(ra)"), meanCoords("avg(dec)")) === meanCoords("subzone"))
     val resolvedPairs = uniqueMatches.join(goodPrimaryIds, Seq("id1", "subzone"))
                                        .select("id1", "id2").distinct()
     resolvedPairs.write.parquet("resolved_pairs.parquet")
-
   }
 
   def joinDataTask(dataPath: Option[String], globPattern: Option[String]): Unit = {
