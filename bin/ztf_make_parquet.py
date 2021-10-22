@@ -10,6 +10,8 @@ import tqdm
 import tables
 import pandas as pd
 import numpy as np
+import pyarrow
+import pyarrow.parquet
 
 def recast_uint(df):
     for column, dtype in zip(df.columns, df.dtypes):
@@ -110,6 +112,31 @@ def convert_matchfile(matchfile_filename, pos_parquet_filename,
 
     source_pos_catalog = make_positional_dataframe(sourcedata)
 
+    columns_to_rename = ["mjd", "mag", "magerr", "psfflux", "psffluxerr",
+                         "catflags", "expid", "xpos", "ypos", "chi", "sharp",
+                         "programid"]
+    filter_map = {1: "g", 2: "r", 3: "i"}
+    filter_number = matchfile_md['filterID']
+    filter_string = filter_map[filter_number]
+
+    sourcedata['rcID' + '_' + filter_string] = matchfile_md['rcID']
+    sourcedata['fieldID' + '_' + filter_string] = matchfile_md['fieldID']
+
+    sourcedata.rename(columns={column: f"{column}_{filter_string}" for column in columns_to_rename },
+                     inplace=True)
+    sourcedata['expid'] = sourcedata['expid_' + filter_string]
+
+    for n in set((1,2,3)) - set((filter_number,)):
+        set_filter_string = filter_map[n]
+        for column in columns_to_rename:
+            datatype = sourcedata[f"{column}_{filter_string}"].dtype
+            sourcedata[f"{column}_{set_filter_string}"] = pd.Series(dtype=datatype)
+
+        sourcedata[f"rcID_{set_filter_string}"] = pd.Series(dtype=np.int16)
+        sourcedata[f"fieldID_{set_filter_string}"] = pd.Series(dtype=np.int16)
+
+
+
     if include_transients:
         transientdata = get_dataframe_from_hdf_table(matchfile_hdf,
                                                      "/matches/transientdata",
@@ -155,14 +182,29 @@ def convert_matchfile(matchfile_filename, pos_parquet_filename,
         os.makedirs(os.path.dirname(pos_parquet_filename))
 
     if pos_parquet_filename is not None:
-        double_duplicated_pos_catalog.to_parquet(pos_parquet_filename)
+        #double_duplicated_pos_catalog.to_parquet(pos_parquet_filename)
+        table = pyarrow.Table.from_pandas(double_duplicated_pos_catalog)
+        pyarrow.parquet.write_table(table, pos_parquet_filename)
 
     if data_parquet_filename is not None:
         if include_transients:
             combined_data = pd.concat([sourcedata, transientdata])
         else:
             combined_data = sourcedata
-        combined_data.to_parquet(data_parquet_filename)
+        schema = pyarrow.Schema.from_pandas(combined_data)
+
+        for n in set((1,2,3)) - set((filter_number,)):
+            set_filter_string = filter_map[n]
+            for column in columns_to_rename + ["rcID", "fieldID"] :
+                new_type = schema.field_by_name(f"{column}_{filter_string}").type
+                idx_to_set = schema.get_field_index(f"{column}_{set_filter_string}")
+                schema = schema.set(idx_to_set, pyarrow.field(f"{column}_{set_filter_string}", new_type))
+                datatype = sourcedata[f"{column}_{filter_string}"].dtype
+                sourcedata[f"{column}_{set_filter_string}"] = pd.Series(dtype=datatype)
+
+        table = pyarrow.Table.from_pandas(combined_data, schema)
+        pyarrow.parquet.write_table(table, data_parquet_filename)
+        #combined_data.to_parquet(data_parquet_filename)
 
     matchfile_hdf.close()
 
